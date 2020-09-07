@@ -1,0 +1,144 @@
+# -*- coding: cp1250 -*-
+#Skrypt generalizacji budynków  wykorzystaniem siecznych
+
+
+import arcpy, math
+from collections import OrderedDict
+arcpy.env.overwriteOutput=1
+
+
+
+#Funkcja czytania geometrii      
+def czytaj2(geometria):
+    try:
+        list_vertex=[]
+        for part in geometria:
+            for pnt in part:
+                if pnt:
+                    list_vertex.append([pnt.X, pnt.Y])
+    except Exception, err:
+            arcpy.AddError("blad czytaj2")
+            arcpy.AddError(sys.exc_traceback.tb_lineno)
+            arcpy.AddError(err.message)
+    finally:
+        
+        return list_vertex
+
+
+#Funkcja do obliczania d³ugoœci
+def lenght(lista1,lista2):
+    lenght = math.sqrt((lista2[0]-lista1[0])**2+(lista2[1]-lista1[1])**2)
+    
+    return lenght
+
+
+#Funkcja do tworzenia siecznych
+def sectant(listaAll,Obiekt,k):
+    sec = []
+    for i in range(0, len(listaAll)):
+        for j in range(0, len(listaAll)-2):
+            if i+j+1+k>=len(listaAll)-1:
+                break
+            elif i+j+1+k==len(listaAll)-1 and i==0:
+                break
+            elif i==0 and listaAll[i+j+1+k]==listaAll[-2]:
+                break
+            else:
+                array = arcpy.Array([arcpy.Point(listaAll[i][0],listaAll[i][1]),arcpy.Point(listaAll[i+j+1+k][0],listaAll[i+j+1+k][1])])
+                sectant = arcpy.Polyline(array)
+                if sectant.crosses(Obiekt.boundary())==True:
+                    break
+            sec.append(sectant)
+    del array, sectant
+    
+    return sec
+
+
+#Funkcja do obliczania azymutu
+def azymut(lista1,lista2):
+    dx = (lista2[0]-lista1[0])
+    dy = (lista2[1]-lista1[1])
+    if dx == 0 and dy > 0:
+        azymut = math.pi/2
+    elif dx == 0 and dy < 0:
+        azymut = math.pi+math.pi/2
+    elif dy == 0 and dx > 0:
+        azymut = 0
+    elif dy == 0 and dx < 0:
+        azymut = math.pi
+    elif dy == 0 and dx == 0:
+        azymut = 0
+    else:
+        azymut = math.atan(dy/dx)
+    del dx, dy
+    
+    return azymut
+
+
+#Funkcja do wyszukiwania najkrótszej wœród przek¹tnych
+def search_min_przekatna(lista):
+    minimum = lista
+    for przekatna in lista:
+        if przekatna[0] < minimum[0]:
+            minimum = przekatna
+            
+    return(minimum)
+
+
+#Funkcja do usuwania wierzcho³ków
+def delete_vertex(lista,tolerance):
+    list_true_vertex = []
+    list_true_vertex.append(lista[0])
+    for indexs in range(1, len(lista)-1):
+        azymut1 = math.degrees(abs(azymut(lista[indexs],lista[indexs-1])-azymut(lista[indexs],lista[indexs+1])))
+        if (azymut1<360-tolerance and azymut1>180+tolerance) or (azymut1>tolerance and azymut1<180-tolerance):
+            list_true_vertex.append(lista[indexs])
+    list_true_vertex.append(lista[-1])
+    return list_true_vertex
+
+
+#Funkcja czytania geometrii i dzia³ania na niej
+def ReadGeometry(layer):
+    list_polygon = []
+    list_all_vertex = []
+    list_del_vertex = []
+    list_sec = []
+    listTuple = []
+    features = []
+    desc = arcpy.da.SearchCursor(layer, ['SHAPE@'])
+    #Czytanie geometri
+    for row in desc:
+        list_polygon.append(row)
+        list_one_vertex = czytaj2(row[0])
+        list_all_vertex.append(list_one_vertex)
+        
+    #Usuwanie wierzcho³ków dla których ramiona tworz¹ kat ró¿ny od 180 +-tolerancja   
+    for indeks in range(0, len(list_all_vertex)):
+        list_del_vertex.append(delete_vertex(list_all_vertex[indeks], 10))
+
+    #Tworzenie geometri po usuniêciu wierzcho³ków
+    for feature in list_del_vertex:
+            array = arcpy.Array([arcpy.Point(*coords) for coords in feature])
+            array.append(array[0])
+            features.append(arcpy.Polygon(array))
+            
+    #Tworzenie warstwy poligonów budynków z usuniêtymi wierzecho³kami        
+    #arcpy.CopyFeatures_management(features, "C:\Users\Maciek\Desktop\egzamin_PPGII\Zadanie\polygons3.shp")
+
+    #Tworzenie siecznych uwzglêdniaj¹c przeciêcia oraz parametr k
+    for indeks in range(0, len(list_del_vertex)):
+        list_sec.append(sectant(list_del_vertex[indeks],features[indeks],1))
+    
+    del desc, row, list_one_vertex
+    return list_all_vertex, list_polygon, list_del_vertex
+
+
+if __name__ == "__main__":
+    
+    #Wczytanie pliku .shp z danymi
+    file_bud = r"C:\Users\Maciek\Desktop\egzamin_PPGII\Zadanie\Dane.shp"
+
+    #Dzia³ania na geometrii
+    ReadGeometry(file_bud)
+
+    print('Ukonczono pomyslnie')
